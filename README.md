@@ -1,1 +1,1 @@
-# SnoffS20HeatSensor
+# SonoffS20HeatSensor
