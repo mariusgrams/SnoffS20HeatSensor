@@ -1,6 +1,7 @@
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#include <EEPROM.h>
 
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html>
@@ -21,19 +22,24 @@ const char index_html[] PROGMEM = R"rawliteral(
       vertical-align:middle;
       padding-bottom: 15px;
     }
+   input { font-size: 2.0rem; }
   </style>
 </head>
 <body>
   <h2>Wohnmobil Heizung</h2>
   <p>
-    <span class="dht-labels">Aktuelle Temperatur: </span> 
+    <span class="dht-labels">Aktuelle Temperatur: </span><br> 
     <span id="temperature">%TEMPERATURE%</span>
     <sup class="units">&deg;C</sup>
   </p>
   <p>
-    <span class="dht-labels">Schalten bei: </span>
-    <span id="humidity">%AUTO_TEMP%</span>
-    <sup class="units">&deg;C</sup>
+    <form action="/get">
+      <span class="dht-labels">Schalten bei: </span><br>
+      <span class="dht-labels">
+        <input pattern="^\d*(\.\d{0,2})?$" name="input1" value="%AUTO_TEMP%" size="25">
+        <input type="submit" value="Speichern">
+      </span>
+    </form>
   </p>
 </body>
 <script>
@@ -46,21 +52,11 @@ setInterval(function ( ) {
   };
   xhttp.open("GET", "/temperature", true);
   xhttp.send();
-}, 10000 ) ;
-
-setInterval(function ( ) {
-  var xhttp = new XMLHttpRequest();
-  xhttp.onreadystatechange = function() {
-    if (this.readyState == 4 && this.status == 200) {
-      document.getElementById("humidity").innerHTML = this.responseText;
-    }
-  };
-  xhttp.open("GET", "/humidity", true);
-  xhttp.send();
-}, 10000 ) ;
+}, 1000);
 </script>
 </html>)rawliteral";
 
+//Const values
 const int PIN_RELAY = 12;
 const int PIN_LED = 13;
 char *WIFI_SSD  = "Wohnmobil_Heizung"; 
@@ -70,6 +66,10 @@ unsigned long previousMillis = 0UL;
 IPAddress local_IP(192,168,4,22);
 IPAddress gateway(192,168,4,9);
 IPAddress subnet(255,255,255,0);
+const char* PARAM_INPUT_1 = "input1";
+#define EEPROM_SIZE 12
+
+//Member variables
 AsyncWebServer server(80);
 float temperatur = 0.0;
 float autoTemperatur = 22.0;
@@ -79,6 +79,8 @@ void setup() {
   pinMode(PIN_RELAY, OUTPUT);
   setupWifi();
   setupWebserver();
+  EEPROM.begin(EEPROM_SIZE);
+  autoTemperatur = readAutoTempValue();
 }
 
 void setupWifi() {
@@ -107,6 +109,28 @@ void setupWebserver() {
 
   server.on("/temperature", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send_P(200, "text/plain", String(temperatur).c_str());
+  });
+
+  server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    String inputMessage;
+    String inputParam;
+
+    if (request->hasParam(PARAM_INPUT_1)) {
+      inputMessage = request->getParam(PARAM_INPUT_1)->value();
+      inputParam = PARAM_INPUT_1;
+      Serial.print("Get Input from key: ");
+      Serial.print(inputParam);
+      Serial.print(" Value: ");
+      Serial.println(inputMessage);
+      autoTemperatur = inputMessage.toFloat();
+      writeAutoTempValue(autoTemperatur);
+    }
+    else {
+      inputMessage = "No message sent";
+      inputParam = "none";
+    }
+    
+    request->send_P(200, "text/html", index_html, processor);
   });
  
   server.begin();
@@ -166,4 +190,17 @@ void readTemperatureValue() {
     }
     previousMillis = currentMillis;
   }
+}
+
+float readAutoTempValue() {
+  float autoTemp;
+  EEPROM.get(0, autoTemp);
+  Serial.print("AutoTemp value from EPROM: ");
+  Serial.println(autoTemp);
+  return autoTemp;
+}
+
+void writeAutoTempValue(float tempValue) {
+  EEPROM.put(0, tempValue);
+  EEPROM.commit();
 }
