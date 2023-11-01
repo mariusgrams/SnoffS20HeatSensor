@@ -2,6 +2,7 @@
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <EEPROM.h>
+#include <DHT22.h>
 
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html>
@@ -59,6 +60,7 @@ setInterval(function ( ) {
 //Const values
 const int PIN_RELAY = 12;
 const int PIN_LED = 13;
+const int PIN_TEMP_SENSOR = 2;
 char *WIFI_SSD  = "Wohnmobil_Heizung"; 
 char *WIFI_PW  = "Schalke04!"; 
 const unsigned long INTERVAL = 1000UL;
@@ -71,16 +73,19 @@ const char* PARAM_INPUT_1 = "input1";
 
 //Member variables
 AsyncWebServer server(80);
+DHT22 dht22(PIN_TEMP_SENSOR);
 float temperatur = 0.0;
 float autoTemperatur = 22.0;
 
 void setup() {
   Serial.begin(9600); 
   pinMode(PIN_RELAY, OUTPUT);
+  pinMode(PIN_LED, OUTPUT);
   setupWifi();
   setupWebserver();
   EEPROM.begin(EEPROM_SIZE);
   autoTemperatur = readAutoTempValue();
+  Serial.println("Setup done");
 }
 
 void setupWifi() {
@@ -178,10 +183,10 @@ void readTemperatureValue() {
 
   if(currentMillis - previousMillis > INTERVAL)
   {
-    temperatur = random(100,200);
+    temperatur = dht22.getTemperature();
     Serial.print("Temp: ");
     Serial.println(temperatur);
-    if (temperatur >= 150) {
+    if (temperatur <= autoTemperatur) {
       setLedEnabled(true);
       setRelayEnabled(true);
     } else {
@@ -189,6 +194,7 @@ void readTemperatureValue() {
       setRelayEnabled(false);
     }
     previousMillis = currentMillis;
+
   }
 }
 
