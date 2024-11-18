@@ -64,7 +64,6 @@ const int PIN_TEMP_SENSOR = 2;
 char *WIFI_SSD  = "Wohnmobil_Heizung"; 
 char *WIFI_PW  = "Schalke04!"; 
 const unsigned long INTERVAL = 1000UL;
-unsigned long previousMillis = 0UL;
 IPAddress local_IP(192,168,4,22);
 IPAddress gateway(192,168,4,9);
 IPAddress subnet(255,255,255,0);
@@ -75,20 +74,23 @@ const char* PARAM_INPUT_1 = "input1";
 AsyncWebServer server(80);
 DHT22 dht22(PIN_TEMP_SENSOR);
 float temperatur = 0.0;
-float autoTemperatur = 22.0;
+float switchTemperature = 22.0;
+unsigned long lastSwitchedMillis = 0UL;
 
-void setup() {
+void setup()
+{
   Serial.begin(9600); 
   pinMode(PIN_RELAY, OUTPUT);
   pinMode(PIN_LED, OUTPUT);
   setupWifi();
   setupWebserver();
   EEPROM.begin(EEPROM_SIZE);
-  autoTemperatur = readAutoTempValue();
+  switchTemperature = readSwitchTempValue();
   Serial.println("Setup done");
 }
 
-void setupWifi() {
+void setupWifi()
+{
   Serial.print("Setting soft-AP configuration ... ");
   Serial.println(WiFi.softAPConfig(local_IP, gateway, subnet) ? "Ready" : "Failed!");
 
@@ -107,7 +109,8 @@ void setupWifi() {
   setLedEnabled(false);
 }
 
-void setupWebserver() {
+void setupWebserver()
+{
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send_P(200, "text/html", index_html, processor);
   });
@@ -127,8 +130,8 @@ void setupWebserver() {
       Serial.print(inputParam);
       Serial.print(" Value: ");
       Serial.println(inputMessage);
-      autoTemperatur = inputMessage.toFloat();
-      writeAutoTempValue(autoTemperatur);
+      switchTemperature = inputMessage.toFloat();
+      writeSwitchTempValue(switchTemperature);
     }
     else {
       inputMessage = "No message sent";
@@ -141,11 +144,17 @@ void setupWebserver() {
   server.begin();
 }
 
-void loop() {
-  readTemperatureValue();
+void loop()
+{
+  checkCurrentTemperature();
 }
 
-void setLedEnabled(bool isOn) {
+/**
+ * Set the hardware LED to on or off.
+ * @param isOn true to turn the LED on, otherwise off.
+ */
+void setLedEnabled(bool isOn)
+{
   //Info on = low
   if (isOn) {
     digitalWrite(PIN_LED, LOW);
@@ -155,58 +164,77 @@ void setLedEnabled(bool isOn) {
 }
 
 /**
- * Set Relay and red status LED
+ * Set the hardware relay value on or off.
+ * @param isOn true to turn on the socket/relay, otherwise off.
  */
-void setRelayEnabled(bool isOn) {
-    if (isOn) {
+void setRelayEnabled(bool isOn)
+{
+  if (isOn) {
     digitalWrite(PIN_RELAY, HIGH);
   } else {
     digitalWrite(PIN_RELAY, LOW);
   } 
 }
 
-// Replaces placeholder with DHT values
+/**
+ * This function is called from the webserver to replace the placeholder with an actual value.
+ * @param var placeholder that should be replaced.
+ * @return the actual value.
+ */
 String processor(const String& var){
-  //Serial.println(var);
   if(var == "TEMPERATURE"){
     return String(temperatur);
   } 
 
   if(var == "AUTO_TEMP"){
-    return String(autoTemperatur);
+    return String(switchTemperature);
   } 
   return String();
 }
 
-void readTemperatureValue() {
-  unsigned long currentMillis = millis();
+/**
+ * Main logic to control the socket, depending on the current temperature.
+ */
+void checkCurrentTemperature()
+{
+  const unsigned long currentMillis = millis();
 
-  if(currentMillis - previousMillis > INTERVAL)
+  if(currentMillis - lastSwitchedMillis > INTERVAL)
   {
     temperatur = dht22.getTemperature();
     Serial.print("Temp: ");
     Serial.println(temperatur);
-    if (temperatur <= autoTemperatur) {
+    if (temperatur <= switchTemperature)
+    {
       setLedEnabled(true);
       setRelayEnabled(true);
-    } else {
+    }
+    else
+    {
       setLedEnabled(false);
       setRelayEnabled(false);
     }
-    previousMillis = currentMillis;
-
+    lastSwitchedMillis = currentMillis;
   }
 }
 
-float readAutoTempValue() {
-  float autoTemp;
-  EEPROM.get(0, autoTemp);
-  Serial.print("AutoTemp value from EPROM: ");
-  Serial.println(autoTemp);
-  return autoTemp;
+/**
+ * Read value from EPROM, when the temperatur should be switched.
+ */
+float readSwitchTempValue()
+{
+  float switchTemperature;
+  EEPROM.get(0, switchTemperature);
+  Serial.print("Switch temperature value from EPROM: ");
+  Serial.println(switchTemperature);
+  return switchTemperature;
 }
 
-void writeAutoTempValue(float tempValue) {
+/**
+ * Write value to EPROM, when the temperatur should be switched.
+ */
+void writeSwitchTempValue(float tempValue)
+{
   EEPROM.put(0, tempValue);
   EEPROM.commit();
 }
